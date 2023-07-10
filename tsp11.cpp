@@ -1,167 +1,230 @@
 #include <iostream>
-#include <fstream>
 #include <vector>
+#include <climits>
 #include <algorithm>
-#include <limits>
-#include <cmath>
 #include <queue>
-#include <omp.h>
+#include <chrono>
+#include <fstream>
 
 using namespace std;
 
-const int INF = numeric_limits<int>::max();
+#define lli long long int
 
-// Estructura para representar una arista
-struct Edge {
-    int src, dest, weight;
-};
+vector<vector<lli>> crearMatrizIncidencia(const string& archivo) {
+    ifstream entrada(archivo);
+    if (!entrada) {
+        cerr << "No se pudo abrir el archivo." << endl;
+        return {};
+    }
 
-// Función para leer los datos del archivo
-vector<Edge> readData(const string& filename) {
-    ifstream file(filename);
-    vector<Edge> edges;
+    lli cantidadVertices;
+    entrada >> cantidadVertices;
 
-    if (file.is_open()) {
-        string name;
-        int numEdges;
-        file >> name >> numEdges;
+    vector<vector<lli>> matrizIncidencia(cantidadVertices, vector<lli>(cantidadVertices, INT_MAX));
 
-        int src, dest, weight;
-        while (file >> src >> dest >> weight) {
-            edges.push_back({src, dest, weight});
+    int nodoA, nodoB, peso;
+    while (entrada >> nodoA >> nodoB >> peso) {
+        matrizIncidencia[nodoA][nodoB] = peso;
+        matrizIncidencia[nodoB][nodoA] = peso;
+    }
+
+    entrada.close();
+
+    for (const auto& fila : matrizIncidencia) {
+        for (int valor : fila) {
+            if(valor == INT_MAX) cout << -1 << " ";
+            else cout << valor << " ";
+        }
+        cout << endl;
+    }
+
+    return matrizIncidencia;
+}
+
+class Node
+{
+public:
+    vector<pair<lli, lli>> path;
+    vector<vector<lli>> matrix;
+    lli cost;
+    lli v;
+    lli level;
+
+public:
+    Node(lli n, const vector<vector<lli>>& matrix, const vector<pair<lli, lli>>& path, lli level, lli a, lli b)
+    {
+        this->path = path;
+
+        if (level != 0)
+        {
+            this->path.push_back({a, b});
         }
 
-        file.close();
-    } else {
-        cout << "No se pudo abrir el archivo: " << filename << endl;
-    }
+        this->matrix = matrix;
 
-    return edges;
-}
-
-// Función para calcular la distancia entre dos nodos
-int distance(const Edge& edge) {
-    return edge.weight;
-}
-
-// Estructura para representar una tarea
-struct Task {
-    vector<int> currPath;
-    vector<bool> visited;
-    int currCost;
-
-    Task() = default; // Constructor sin argumentos
-
-    Task(const vector<int>& path, const vector<bool>& vis, int cost)
-        : currPath(path), visited(vis), currCost(cost) {}
-};
-
-// Función auxiliar para ordenar las tareas según su costo actual
-struct CompareTasks {
-    bool operator()(const Task& task1, const Task& task2) const {
-        return task1.currCost > task2.currCost;
-    }
-};
-
-// Función principal del algoritmo de Branch and Bound
-void tspBranchAndBound(vector<Edge>& edges, int numThreads, int& minCost, vector<int>& minPath) {
-    int n = edges.size() + 1; // Número de nodos
-
-    // Crear cola de tareas
-    priority_queue<Task, vector<Task>, CompareTasks> tasks;
-
-    // Crear tarea inicial
-    vector<int> initialPath{1};
-    vector<bool> initialVisited(n, false);
-    initialVisited[1] = true;
-    Task initialTask(initialPath, initialVisited, 0);
-    tasks.push(initialTask);
-
-    // Calcular el camino óptimo utilizando Branch and Bound
-    while (!tasks.empty()) {
-        vector<Task> newTasks;
-
-        #pragma omp parallel num_threads(numThreads)
+        for (lli k = 0; level != 0 && k < n; k++)
         {
-            vector<Task> privateTasks;
+            this->matrix[a][k] = INT_MAX;
+            this->matrix[k][b] = INT_MAX;
+        }
 
-            #pragma omp for nowait
-            for (int t = 0; t < tasks.size(); t++) {
-                Task task = tasks.top();
-                tasks.pop();
+        this->matrix[b][0] = INT_MAX;
+        this->level = level;
+        this->v = b;
+    }
+};
 
-                if (task.currPath.size() == n) { // Se ha completado un ciclo
-                    task.currCost += distance(edges[task.currPath.back() - 1]);
-                    if (task.currCost < minCost) {
-                        #pragma omp critical
-                        {
-                            if (task.currCost < minCost) {
-                                minCost = task.currCost;
-                                minPath = task.currPath;
-                            }
-                        }
-                    }
-                } else {
-                    for (int i = 1; i <= n; i++) {
-                        if (!task.visited[i]) {
-                            vector<int> newPath = task.currPath;
-                            newPath.push_back(i);
+lli get_min_and_subtract(lli n, vector<vector<lli>>& mat, lli prev_cost)
+{
+    lli count = 0;
 
-                            vector<bool> newVisited = task.visited;
-                            newVisited[i] = true;
+    vector<lli> rc(n);
 
-                            int edgeIndex = newPath.size() - 2;
-                            int edgeWeight = (edgeIndex >= 0) ? distance(edges[newPath[edgeIndex] - 1]) : 0;
-                            int newCost = task.currCost + edgeWeight + distance(edges[i - 1]);
+    for (lli i = 0; i < n; i++)
+    {
+        lli min = INT_MAX;
+        for (lli j = 0; j < n; j++)
+        {
+            if (min > mat[i][j])
+            {
+                min = mat[i][j];
+            }
+        }
 
-                            if (newCost < minCost) {
-                                privateTasks.emplace_back(newPath, newVisited, newCost);
-                            }
-                        }
-                    }
+        if (min != 0 && min != INT_MAX)
+        {
+            for (lli j = 0; j < n; j++)
+            {
+                if (mat[i][j] != INT_MAX)
+                {
+                    mat[i][j] -= min;
+                    count++;
                 }
             }
+            rc[i] = min;
+        }
+        else
+        {
+            rc[i] = 0;
+        }
+    }
 
-            #pragma omp critical
+    for (lli j = 0; j < n; j++)
+    {
+        lli min = INT_MAX;
+        for (lli i = 0; i < n; i++)
+        {
+            if (min > mat[i][j])
             {
-                newTasks.insert(newTasks.end(), privateTasks.begin(), privateTasks.end());
+                min = mat[i][j];
             }
         }
 
-        for (const auto& task : newTasks) {
-            tasks.push(task);
+        if (min != 0 && min != INT_MAX)
+        {
+            for (lli i = 0; i < n; i++)
+            {
+                if (mat[i][j] != INT_MAX)
+                {
+                    mat[i][j] -= min;
+                    count++;
+                }
+            }
+            rc[j] += min;
+            count++;
         }
     }
+
+    lli cost = 0;
+    for (lli i = 0; i < n; i++)
+    {
+        cost += rc[i];
+        count++;
+    }
+    count++;
+
+    // cout << count << endl;
+
+    return cost + prev_cost;
 }
 
-int main() {
-    string filename = "map10.tsp"; // Nombre del archivo con los datos
-    int numThreads = omp_get_max_threads(); // Cantidad de hilos
-    std::cout << "parte 1" << std::endl;
-
-    // Leer los datos del archivo
-    vector<Edge> edges = readData(filename);
-    std::cout << "parte 1" << std::endl;
-
-    int n = edges.size() + 1; // Número de nodos
-    std::cout << n << std::endl;
-
-    // Inicializar variables
-    int minCost = INF;
-    vector<int> minPath;
-    std::cout << "parte 1" << std::endl;
-
-    // Calcular el camino óptimo utilizando Branch and Bound
-    tspBranchAndBound(edges, numThreads, minCost, minPath);
-    std::cout << "parte 1" << std::endl;
-
-    // Mostrar el resultado
-    cout << "Tiempo de ejecución: " << omp_get_wtime() << " segundos" << endl;
-    cout << "Camino óptimo: ";
-    for (int node : minPath) {
-        cout << node << " ";
+class cmp
+{
+public:
+    bool operator() (Node* a, Node* b)
+    {
+        return a->cost > b->cost;
     }
-    cout << endl;
+};
+
+lli tsp(const vector<vector<lli>>& matrix, lli n)
+{
+    priority_queue<Node*, vector<Node*>, cmp> pq;
+    vector<pair<lli, lli>> p;
+
+    Node* root = new Node(n, matrix, p, 0, -1, 0);
+
+    lli count = 0;
+
+    root->cost = get_min_and_subtract(n, root->matrix, 0);
+
+    pq.push(root);
+
+    while (!pq.empty())
+    {
+        Node* min = pq.top();
+        pq.pop();
+
+        lli i = min->v;
+
+        if (min->level == n - 1)
+        {
+            min->path.push_back({i, 0});
+            return min->cost;
+        }
+
+        for (lli j = 0; j < n; j++)
+        {
+            if (min->matrix[i][j] != INT_MAX)
+            {
+                Node* child = new Node(n, min->matrix, min->path, min->level + 1, i, j);
+                child->cost = min->matrix[i][j] + get_min_and_subtract(n, child->matrix, min->cost);
+                count++;
+                pq.push(child);
+            }
+        }
+    }
+
+    return -1; // Si no se encuentra una solución válida
+}
+
+int main()
+{
+    // ifstream file("matrix2.txt");
+
+    // lli n;
+    // file >> n;
+    vector<vector<lli>> matrizIncidencia = crearMatrizIncidencia("map11.tsp");
+    // vector<vector<lli>> matrix(n, vector<lli>(n));
+
+    // for (lli i = 0; i < n; i++)
+    // {
+    //     for (lli j = 0; j < n; j++)
+    //     {
+    //         lli temp;
+    //         file >> temp;
+    //         if (temp == -1)
+    //         {
+    //             matrix[i][j] = INT_MAX;
+    //         }
+    //         else
+    //         {
+    //             matrix[i][j] = temp;
+    //         }
+    //     }
+    // }
+    lli res = tsp(matrizIncidencia, matrizIncidencia.size());
+    cout << "Costo mínimo del recorrido: " << res << endl;
 
     return 0;
 }
